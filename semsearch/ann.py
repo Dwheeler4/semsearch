@@ -85,7 +85,13 @@ class HNSWIndex:
         return current
 
     def _search_layer(self, vector: np.ndarray, entry: int, ef: int, layer: int) -> list[int]:
-        """Beam search at a single layer, returning up to `ef` nearest node ids found."""
+        """Beam search at a single layer, returning up to `ef` nearest node ids found.
+
+        Note: neighbor sets here are small (m/m0 = 16-32 nodes), so batching their distance
+        computations into one np.stack() + matmul call was tried and measured *slower* than
+        this simple per-neighbor loop -- the stack/copy overhead outweighs the saved dispatch
+        calls at this batch size. Reverted; see README benchmark section.
+        """
         entry_dist = self._distance(vector, self.vectors[entry])
         visited = {entry}
         candidates = [(entry_dist, entry)]  # min-heap: nodes still worth expanding

@@ -73,6 +73,8 @@ def load_ann_index(root: str) -> HNSWIndex | None:
 
 def search(query_embedding: np.ndarray, embeddings: np.ndarray, chunks: list[Chunk], top_k: int = 5) -> list[tuple[Chunk, float]]:
     """Exact brute-force cosine similarity search: O(n) per query, always fully accurate."""
+    if len(chunks) == 0:
+        return []
     scores = embeddings @ query_embedding
     top_indices = np.argpartition(-scores, min(top_k, len(scores) - 1))[:top_k]
     top_indices = top_indices[np.argsort(-scores[top_indices])]

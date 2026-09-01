@@ -81,10 +81,18 @@ def cmd_benchmark(args: argparse.Namespace) -> None:
 
     sample_size = min(args.samples, len(chunks))
     sample_indices = random.Random(42).sample(range(len(chunks)), sample_size)
+    rng = np.random.default_rng(42)
 
     exact_times, ann_times, recalls = [], [], []
     for idx in sample_indices:
-        query_embedding = embeddings[idx]
+        # Perturb the sampled chunk's embedding rather than reusing it verbatim as the query.
+        # A verbatim embedding is a graph node itself, so both exact and approximate search
+        # trivially find it as their own top hit -- that inflates recall to ~100% regardless
+        # of how good the index actually is. A small amount of noise (then re-normalized,
+        # since embeddings are unit vectors) approximates what a real query looks like: close
+        # to a chunk's meaning, but not identical to it.
+        query_embedding = embeddings[idx] + rng.standard_normal(embeddings.shape[1]) * 0.35
+        query_embedding = (query_embedding / np.linalg.norm(query_embedding)).astype(embeddings.dtype)
 
         start = time.perf_counter()
         exact_results = search(query_embedding, embeddings, chunks, top_k=args.top_k)
