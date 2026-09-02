@@ -1,5 +1,7 @@
 # semsearch
 
+[![CI](https://github.com/Dwheeler4/semsearch/actions/workflows/ci.yml/badge.svg)](https://github.com/Dwheeler4/semsearch/actions/workflows/ci.yml)
+
 A command-line tool for semantic search over local notes and code. It chunks files, embeds
 them with a sentence-transformer model, and indexes the embeddings with a from-scratch
 implementation of HNSW (Hierarchical Navigable Small World) approximate nearest-neighbor
@@ -75,13 +77,27 @@ inflating recall regardless of index quality. Fixed to perturb the sampled vecto
 noise before re-normalizing, so the query resembles-but-isn't a stored chunk, closer to what an
 actual text query looks like.
 
+## Tests
+
+```
+pip install -r requirements-dev.txt
+pytest
+```
+
+`tests/` covers the from-scratch HNSW index (neighbor degree bounds, seeded-construction
+determinism, exact-match retrieval, and approximate-vs-brute-force recall on synthetic
+vectors), the chunker (full coverage, overlap, forward progress on pathological input),
+and file discovery / index root-finding. It runs in CI on Python 3.11 and 3.12 and uses
+only synthetic vectors, so no model download is needed.
+
 ## Known limitations
 
 - The HNSW implementation is single-threaded, in-memory, and not incrementally deletable
   (no node removal, only insertion) — fine for a local CLI re-indexing a directory, not
   intended as a production vector store.
-- No tests currently cover `ann.py`'s graph construction directly (recall is checked
-  empirically via the benchmark above, not asserted in a test suite).
+- The HNSW recall/latency *curve* across corpus sizes is characterised by the benchmark
+  above rather than pinned by assertions; the test suite covers graph invariants and
+  recall on small synthetic corpora, not the large-corpus operating points.
 - Chunking is purely character-count-based (800 chars, 150 overlap) with no awareness of code
   structure (functions, classes) or markdown structure (headings) — a chunk can split a
   function mid-body.
