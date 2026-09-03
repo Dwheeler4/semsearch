@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import statistics
 import textwrap
 import time
 
@@ -33,12 +34,13 @@ def _print_results(
     ann_index: HNSWIndex | None,
     top_k: int,
     exact: bool,
+    ef_search: int | None = None,
 ) -> None:
     query_embedding = embed_query(query)
     if exact or ann_index is None:
         results = search(query_embedding, embeddings, chunks, top_k=top_k)
     else:
-        results = ann_search(query_embedding, ann_index, chunks, top_k=top_k)
+        results = ann_search(query_embedding, ann_index, chunks, top_k=top_k, ef=ef_search)
     if not results:
         print("No results.")
         return
@@ -55,7 +57,7 @@ def cmd_search(args: argparse.Namespace) -> None:
     ann_index = load_ann_index(root)
 
     if args.query:
-        _print_results(args.query, root, chunks, embeddings, ann_index, args.top_k, args.exact)
+        _print_results(args.query, root, chunks, embeddings, ann_index, args.top_k, args.exact, args.ef_search)
         return
 
     mode = "exact brute-force" if args.exact or ann_index is None else "approximate (HNSW)"
@@ -68,7 +70,7 @@ def cmd_search(args: argparse.Namespace) -> None:
             break
         if not query or query.lower() in {"q", "quit", "exit"}:
             break
-        _print_results(query, root, chunks, embeddings, ann_index, args.top_k, args.exact)
+        _print_results(query, root, chunks, embeddings, ann_index, args.top_k, args.exact, args.ef_search)
 
 
 def cmd_benchmark(args: argparse.Namespace) -> None:
@@ -99,17 +101,24 @@ def cmd_benchmark(args: argparse.Namespace) -> None:
         exact_times.append(time.perf_counter() - start)
 
         start = time.perf_counter()
-        approx_results = ann_search(query_embedding, ann_index, chunks, top_k=args.top_k)
+        approx_results = ann_search(query_embedding, ann_index, chunks, top_k=args.top_k, ef=args.ef_search)
         ann_times.append(time.perf_counter() - start)
 
         exact_ids = {id(c) for c, _ in exact_results}
         approx_ids = {id(c) for c, _ in approx_results}
         recalls.append(len(exact_ids & approx_ids) / args.top_k)
 
-    print(f"Benchmark: {sample_size} queries, top-{args.top_k}, corpus size {len(chunks)} chunks")
-    print(f"  Exact (brute-force):  {sum(exact_times) / sample_size * 1000:.3f} ms/query avg")
-    print(f"  Approx (HNSW):        {sum(ann_times) / sample_size * 1000:.3f} ms/query avg")
-    print(f"  Recall@{args.top_k}:          {sum(recalls) / sample_size:.1%} (fraction of exact top-{args.top_k} that HNSW also found)")
+    exact_ms = sorted(t * 1000 for t in exact_times)
+    ann_ms = sorted(t * 1000 for t in ann_times)
+
+    def pct(sorted_xs: list[float], q: float) -> float:
+        return sorted_xs[min(len(sorted_xs) - 1, int(q / 100 * len(sorted_xs)))]
+
+    ef_note = args.ef_search if args.ef_search is not None else "index default"
+    print(f"Benchmark: {sample_size} queries, top-{args.top_k}, corpus size {len(chunks)} chunks, ef_search={ef_note}")
+    print(f"  Exact (brute-force):  median {statistics.median(exact_ms):7.3f}  mean {statistics.mean(exact_ms):7.3f}  p90 {pct(exact_ms, 90):7.3f}  ms/query")
+    print(f"  Approx (HNSW):        median {statistics.median(ann_ms):7.3f}  mean {statistics.mean(ann_ms):7.3f}  p90 {pct(ann_ms, 90):7.3f}  ms/query")
+    print(f"  Recall@{args.top_k}:          {statistics.mean(recalls):.1%} (fraction of exact top-{args.top_k} that HNSW also found)")
 
 
 def main() -> None:
@@ -125,12 +134,14 @@ def main() -> None:
     search_parser.add_argument("directory", nargs="?", default=None, help="Directory whose index to search (default: auto-detect from current directory upward)")
     search_parser.add_argument("--top-k", type=int, default=5, help="Number of results to return (default: 5)")
     search_parser.add_argument("--exact", action="store_true", help="Use exact brute-force search instead of the approximate HNSW index")
+    search_parser.add_argument("--ef-search", type=int, default=None, help="HNSW search beam width: higher = better recall, slower (default: index heuristic)")
     search_parser.set_defaults(func=cmd_search)
 
     benchmark_parser = subparsers.add_parser("benchmark", help="Compare approximate (HNSW) vs exact search speed and recall")
     benchmark_parser.add_argument("directory", nargs="?", default=None, help="Directory whose index to benchmark (default: auto-detect)")
     benchmark_parser.add_argument("--top-k", type=int, default=5, help="Number of results to compare per query (default: 5)")
-    benchmark_parser.add_argument("--samples", type=int, default=20, help="Number of sample queries to run (default: 20)")
+    benchmark_parser.add_argument("--samples", type=int, default=200, help="Number of sample queries to run (default: 200)")
+    benchmark_parser.add_argument("--ef-search", type=int, default=None, help="HNSW search beam width: higher = better recall, slower (default: index heuristic)")
     benchmark_parser.set_defaults(func=cmd_benchmark)
 
     args = parser.parse_args()

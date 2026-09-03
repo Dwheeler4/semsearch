@@ -81,7 +81,17 @@ def search(query_embedding: np.ndarray, embeddings: np.ndarray, chunks: list[Chu
     return [(chunks[i], float(scores[i])) for i in top_indices]
 
 
-def ann_search(query_embedding: np.ndarray, ann_index: HNSWIndex, chunks: list[Chunk], top_k: int = 5) -> list[tuple[Chunk, float]]:
-    """Approximate search via the HNSW graph: sub-linear per query, may occasionally miss a true nearest neighbor."""
-    results = ann_index.search(query_embedding, top_k=top_k)
+def ann_search(
+    query_embedding: np.ndarray,
+    ann_index: HNSWIndex,
+    chunks: list[Chunk],
+    top_k: int = 5,
+    ef: int | None = None,
+) -> list[tuple[Chunk, float]]:
+    """Approximate search via the HNSW graph: sub-linear per query, may occasionally miss a true nearest neighbor.
+
+    `ef` is the search-time beam width: larger trades latency for recall. Defaults
+    (None) to the index's own heuristic (max(top_k, ef_construction // 2)).
+    """
+    results = ann_index.search(query_embedding, top_k=top_k, ef=ef)
     return [(chunks[node_id], 1.0 - distance) for node_id, distance in results]

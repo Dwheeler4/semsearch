@@ -65,7 +65,9 @@ def test_recall_against_brute_force_is_high():
     for q in queries:
         approx = {node_id for node_id, _ in index.search(q, top_k=k)}
         recall += len(approx & _brute_force_top_k(vectors, q, k)) / k
-    assert recall / len(queries) >= 0.85
+    # With the Algorithm-4 neighbour-selection heuristic this set is ~1.0;
+    # the bar guards against regressing to naive "k closest" graph building.
+    assert recall / len(queries) >= 0.98
 
 
 def test_search_returns_sorted_distances_and_respects_top_k():
